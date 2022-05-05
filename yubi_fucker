@@ -1,0 +1,90 @@
+#!/bin/bash
+set -e
+
+KEYCHAIN_NAME=yubikey_pin
+RESET_INTERVAL=120 #seconds
+
+##################################################
+ADD_PIN_COMMAND="security add-generic-password -a $LOGNAME -s $KEYCHAIN_NAME -U -p"
+GET_PIN_COMMAND="security find-generic-password -w -a $LOGNAME -s $KEYCHAIN_NAME"
+PKCS11_LIB=/usr/local/lib/opensc-pkcs11.so
+
+self=$(readlink -f "${BASH_SOURCE[0]}")
+basename=$(basename "$self")
+
+usage() {
+    echo "Usage: $basename -p|-r|-d"
+    echo "  -p - Set pin"
+    echo "  -r - Manual refuck Yubikey lib"
+    echo "  -l - Loop refuck Yubikey lib every $RESET_INTERVAL seconds"
+}
+
+
+savePin() {
+    echo "Enter YubiKey PIN to save it in Keychain:"
+    $ADD_PIN_COMMAND
+    exit
+}
+
+checkPin() {
+    if [ -z `$GET_PIN_COMMAND 2>/dev/null` ]; then
+        echo "YubiKey PIN not saved. Save YubiKey PIN by '$basename -p' command"
+        exit;
+    fi
+}
+
+watchYubiKey() {
+    checkPin
+    killOtherDaemons
+    # exec 2>&1 1>/dev/null
+    reset_time=0
+    while true; do
+        now=$(date +%s) 
+        if [ $(($now - $reset_time)) -gt $RESET_INTERVAL ]; then      
+            if [ $reset_time -ne 0 ]; then
+                sleep 5      
+            fi
+            reset_time=$now
+            resetYubiKey
+            echo "sleep $RESET_INTERVAL seconds..."
+        fi
+        sleep 2;
+    done
+}
+
+killOtherDaemons() {
+    for pid in $(ps axu|grep "$basename"|grep -v grep|awk '{print $2}'); do
+        if [ $pid != $$ ]; then
+            (kill -9 $pid) 2>/dev/null >/dev/null || true
+        fi
+    done
+}
+
+resetYubiKey() {
+    checkPin    
+    ssh-add -e $PKCS11_LIB 2>&1 || true
+    expect -c "
+        set timeout 20
+        spawn ssh-add -s $PKCS11_LIB
+        match_max 100000
+        expect \"Enter passphrase\"
+        send -- \"`$GET_PIN_COMMAND`\r\"
+        expect eof
+    "
+}
+
+while getopts ":prl" opt; do
+    case $opt in
+        p)  savePin
+            exit
+            ;;            
+        r)  resetYubiKey
+            exit
+            ;;
+        l)  watchYubiKey
+            ;;
+    esac
+done
+
+usage
+exit 1
