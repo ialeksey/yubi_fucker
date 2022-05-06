@@ -6,6 +6,9 @@ cp yubi_fucker/yubi_fucker /usr/local/bin
 chmod +x /usr/local/bin/yubi_fucker
 ```
 
+Start `yubi_fucker -p` to save PIN in Keychain
+
+Useful aliases:
 ```
 alias yb='yubi_fucker -r'
 alias ybd='nohup yubi_fucker -l 2>&1 >/dev/null &'
